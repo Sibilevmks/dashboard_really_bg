@@ -7,7 +7,6 @@ const B24_CLIENT_ID   = 'YOUR_CLIENT_ID';
 const B24_CLIENT_SEC  = 'YOUR_CLIENT_SECRET';            
 const B24_REDIRECT    = 'https://example.com/oauth/cb';
 
-/** === Вспомогалки === */
 function b24_oauth_authorize() {
     $state = bin2hex(random_bytes(16));
     $_SESSION['b24_state'] = $state;
@@ -40,7 +39,7 @@ function b24_oauth_token($code) {
     if ($resp === false) throw new Exception('OAuth token curl error: ' . curl_error($ch));
     $data = json_decode($resp, true);
     if (empty($data['access_token'])) throw new Exception('OAuth token error: ' . $resp);
-    return $data; // access_token, refresh_token, expires_in, member_id, domain...
+    return $data; 
 }
 
 function b24_oauth_refresh($refreshToken) {
@@ -1702,4 +1701,5 @@ document.getElementById('dealModal').addEventListener('click', (e)=>{
 document.addEventListener('keydown', (e)=>{ if (e.key === 'Escape') closeModal(); });
 </script>
 </body>
+
 </html>
