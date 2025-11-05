@@ -196,37 +196,16 @@ if (empty($selected)) $selected = $visible_ids;
 $filtered = $selected;               // эти рисуем строками
 $nameToId = array_flip($managers);  
 // === Дата по умолчанию
-$selectedDate = $_GET['date'] ?? date('Y-m-d');
+$requestDate  = $_GET['date'] ?? date('Y-m-d');
+$selectedDate = $requestDate;
 
 // === Период (работает только при mode=today)
-$rawPeriod = trim((string)($_GET['period'] ?? ''));
-$rawPeriod = str_ireplace(['–','—'], ' to ', $rawPeriod);
-
-$dateFrom = $selectedDate;
-$dateTo   = $selectedDate;
-
-if ($rawPeriod !== '') {
-    $parts = array_map('trim', explode('to', $rawPeriod));
-
-    $toYmd = static function($s) {
-        $t = strtotime($s);
-        return $t ? date('Y-m-d', $t) : null;
-    };
-
-    if (count($parts) === 2 && $parts[0] !== '' && $parts[1] !== '') {
-        $f = $toYmd($parts[0]);
-        $t = $toYmd($parts[1]);
-        if ($f && $t) { $dateFrom = $f; $dateTo = $t; }
-    } else {
-        $one = $toYmd($rawPeriod);
-        if ($one) { $dateFrom = $one; $dateTo = $one; }
-    }
-
-    if (strtotime($dateFrom) > strtotime($dateTo)) {
-        [$dateFrom, $dateTo] = [$dateTo, $dateFrom];
-    }
+$rawPeriodInput = $_GET['period'] ?? '';
+[$dateFrom, $dateTo] = normalizePeriod($rawPeriodInput, $selectedDate);
+if (trim((string)$rawPeriodInput) !== '') {
     $selectedDate = $dateTo;
 }
+$periodDisplay = formatPeriodRange($dateFrom, $dateTo);
 
 
 // === Подключение к БД 
@@ -647,45 +626,54 @@ function money_span($number, $decimals = 2) {
     return '<span class="money"><span class="money__n">'.$num.'</span><span class="money__r">₽</span></span>';
 }
 
-function renderRow($id, $selected, $managers, $coldLeads, $callsStats, $dealsStats, $kvStats, $amountStats) {
-    // нужно для победителей/дедлайна
-    global $winnerStageCounts, $isAfterDeadline;
+function normalizePeriod($rawPeriod, $defaultDate) {
+    $raw = str_ireplace(['–','—'], ' to ', trim((string)$rawPeriod));
 
-    $modeNow  = $_GET['mode']  ?? 'today';
-    $dateNow  = $_GET['date']  ?? date('Y-m-d');
-    $rawPeriod = trim((string)($_GET['period'] ?? ''));
-    $rawPeriod = str_ireplace(['–','—'], ' to ', $rawPeriod);
+    $from = $defaultDate;
+    $to   = $defaultDate;
 
-    $periodFrom = $dateNow;
-    $periodTo   = $dateNow;
+    if ($raw !== '') {
+        $parts = array_map('trim', explode('to', $raw));
 
-    $toYmd = static function($s) {
-        $t = strtotime($s);
-        return $t ? date('Y-m-d', $t) : null;
-    };
+        $toYmd = static function($value) {
+            $time = strtotime($value);
+            return $time ? date('Y-m-d', $time) : null;
+        };
 
-    if ($rawPeriod !== '') {
-        $parts = array_map('trim', explode('to', $rawPeriod));
         if (count($parts) === 2 && $parts[0] !== '' && $parts[1] !== '') {
-            $f = $toYmd($parts[0]); $t = $toYmd($parts[1]);
-            if ($f && $t) { $periodFrom = $f; $periodTo = $t; }
+            $parsedFrom = $toYmd($parts[0]);
+            $parsedTo   = $toYmd($parts[1]);
+            if ($parsedFrom && $parsedTo) {
+                $from = $parsedFrom;
+                $to   = $parsedTo;
+            }
         } else {
-            $one = $toYmd($rawPeriod);
-            if ($one) { $periodFrom = $one; $periodTo = $one; }
+            $single = $toYmd($raw);
+            if ($single) {
+                $from = $single;
+                $to   = $single;
+            }
         }
-        // защита на перепутанные границы
-        if (strtotime($periodFrom) > strtotime($periodTo)) {
-            [$periodFrom, $periodTo] = [$periodTo, $periodFrom];
+
+        if (strtotime($from) > strtotime($to)) {
+            [$from, $to] = [$to, $from];
         }
     }
 
-    $periodStr = ($periodFrom === $periodTo)
-        ? $periodFrom
-        : ($periodFrom . ' to ' . $periodTo);
+    return [$from, $to];
+}
+
+function formatPeriodRange($from, $to) {
+    return ($from === $to) ? $from : ($from . ' to ' . $to);
+}
+
+function renderRow($id, $selected, $managers, $coldLeads, $callsStats, $dealsStats, $kvStats, $amountStats, $modeNow, $dateNow, $periodDisplay) {
+    // нужно для победителей/дедлайна
+    global $winnerStageCounts, $isAfterDeadline;
 
     $dataDate    = htmlspecialchars($dateNow, ENT_QUOTES, 'UTF-8');
     $dataMode    = htmlspecialchars($modeNow, ENT_QUOTES, 'UTF-8');
-    $dataPeriod  = htmlspecialchars($periodStr, ENT_QUOTES, 'UTF-8');
+    $dataPeriod  = htmlspecialchars($periodDisplay, ENT_QUOTES, 'UTF-8');
     $managerNameAttr = htmlspecialchars($managers[$id] ?? (string)$id, ENT_QUOTES, 'UTF-8');
 
     $kvVal = (float)($kvStats[$id] ?? 0.0);
@@ -1105,7 +1093,7 @@ td.deals-open:hover { background-color: #eef6ff; }
         </tr>
         <?php
         foreach ($directManagers as $id) {
-            echo renderRow($id, $selected, $managers, $coldLeads, $callsStats, $dealsStats, $kvStats, $amountStats);
+            echo renderRow($id, $selected, $managers, $coldLeads, $callsStats, $dealsStats, $kvStats, $amountStats, $mode, $requestDate, $periodDisplay);
         }
         $modeNow = $_GET['mode'] ?? 'today';
         ?>
@@ -1166,7 +1154,7 @@ td.deals-open:hover { background-color: #eef6ff; }
      <?php
      // 3.1 РЕНДЕР СТРОК: только видимых агентов
      foreach ($agentManagers as $id) {
-         echo renderRow($id, $selected, $managers, $coldLeads, $callsStats, $dealsStats, $kvStats, $amountStats);
+        echo renderRow($id, $selected, $managers, $coldLeads, $callsStats, $dealsStats, $kvStats, $amountStats, $mode, $requestDate, $periodDisplay);
      }
      ?>
 
